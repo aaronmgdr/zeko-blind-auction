@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ui",
+      "runtimeExecutable": "/Users/a2/.bun/bin/bun",
+      "runtimeArgs": ["run", "--cwd", "ui", "dev"],
+      "port": 5173
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "blind-auction",
+  "private": true,
+  "workspaces": ["contracts", "ui"],
+  "scripts": {
+    "build": "bun run build:contracts && bun run build:ui",
+    "build:contracts": "bun run --cwd contracts build",
+    "build:ui": "bun run --cwd ui build",
+    "check:contracts": "bun run --cwd contracts check",
+    "test": "bun run --cwd contracts test",
+    "test:fresh": "bun run --cwd contracts test:fresh",
+    "build:cache": "bun run --cwd contracts build:cache",
+    "deploy": "bun run --cwd contracts deploy",
+    "dev": "bun run --cwd ui dev"
+  }
+}
