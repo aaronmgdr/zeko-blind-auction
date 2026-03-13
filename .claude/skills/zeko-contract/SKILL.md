@@ -58,18 +58,21 @@ Always set `setVerificationKey` and `setPermissions` to impossible/locked for im
 ```typescript
 import { Mina, PrivateKey, AccountUpdate } from 'o1js';
 
-// Zeko devnet
-const Zeko = Mina.Network('https://devnet.zeko.io/graphql');
+// Zeko devnet — use object form with networkId
+const Zeko = Mina.Network({
+  networkId: 'zeko',
+  mina: 'https://devnet.zeko.io/graphql',
+});
 Mina.setActiveInstance(Zeko);
 
 const zkAppKey = PrivateKey.random();
 const zkApp = new MyZkApp(zkAppKey.toPublicKey());
 
-await MyZkApp.compile();
+const { verificationKey } = await MyZkApp.compile();
 
-const tx = await Mina.transaction({ sender: feePayer, fee: 1e8 }, async () => {
+const tx = await Mina.transaction({ sender: feePayer, fee: 100_000_000 }, async () => {
   AccountUpdate.fundNewAccount(feePayer);
-  await zkApp.deploy({});
+  await zkApp.deploy({ verificationKey }); // pass verificationKey from compile()
 });
 await tx.sign([feePayerKey, zkAppKey]).send().wait();
 ```
@@ -77,10 +80,10 @@ await tx.sign([feePayerKey, zkAppKey]).send().wait();
 ## Calling methods
 
 ```typescript
-const tx = await Mina.transaction({ sender, fee: 1e8 }, async () => {
+const tx = await Mina.transaction({ sender, fee: 100_000_000 }, async () => {
   await zkApp.update(newRoot);
 });
-await tx.prove(); // generates zk proof
+await tx.prove(); // generates zk proof — runs in browser web worker
 await tx.sign([senderKey]).send().wait();
 ```
 

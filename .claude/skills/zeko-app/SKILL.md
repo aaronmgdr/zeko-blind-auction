@@ -130,11 +130,16 @@ export const api = {
   },
 
   // 5. Build + prove a transaction (two separate calls so UI can show progress)
-  async buildTx(arg58: string) {
+  // sender58: wallet public key (base58) — used as fee payer
+  async buildTx(sender58: string, arg58: string) {
+    const sender = PublicKey.fromBase58(sender58);
     await fetchAccount({ publicKey: state.zkapp!.address });
-    state.tx = await Mina.transaction(async () => {
-      await state.zkapp!.update(Field.fromJSON(JSON.parse(arg58)));
-    });
+    state.tx = await Mina.transaction(
+      { sender, fee: 100_000_000 },
+      async () => {
+        await state.zkapp!.update(Field.fromJSON(JSON.parse(arg58)));
+      }
+    );
   },
   async proveTx() {
     await state.tx!.prove(); // 30–90s
@@ -164,14 +169,14 @@ export class ZkappWorkerClient {
     this.api = Comlink.wrap(worker);
   }
 
-  setNetwork()                       { return this.api.setNetwork(); }
-  loadAndCompile()                   { return this.api.loadAndCompile(); }
-  initInstance(addr: string)         { return this.api.initInstance(addr); }
-  fetchAccount(pk: string)           { return this.api.fetchAccount(pk); }
-  getFieldValue()                    { return this.api.getFieldValue(); }
-  buildTx(arg: string)               { return this.api.buildTx(arg); }
-  proveTx()                          { return this.api.proveTx(); }
-  getTxJSON()                        { return this.api.getTxJSON(); }
+  setNetwork()                              { return this.api.setNetwork(); }
+  loadAndCompile()                          { return this.api.loadAndCompile(); }
+  initInstance(addr: string)               { return this.api.initInstance(addr); }
+  fetchAccount(pk: string)                 { return this.api.fetchAccount(pk); }
+  getFieldValue()                          { return this.api.getFieldValue(); }
+  buildTx(sender: string, arg: string)     { return this.api.buildTx(sender, arg); }
+  proveTx()                                { return this.api.proveTx(); }
+  getTxJSON()                              { return this.api.getTxJSON(); }
 }
 ```
 
@@ -181,11 +186,15 @@ export class ZkappWorkerClient {
 
 ```typescript
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ZkappWorkerClient } from './ZkappWorkerClient';
 
 export default function Page() {
-  const [client]    = useState(() => new ZkappWorkerClient());
+  // useRef prevents double-instantiation in React StrictMode (which runs effects twice)
+  const clientRef = useRef<ZkappWorkerClient | null>(null);
+  if (!clientRef.current) clientRef.current = new ZkappWorkerClient();
+  const client = clientRef.current;
+
   const [wallet, setWallet] = useState<string | null>(null);
   const [status, setStatus] = useState('');
 
@@ -217,7 +226,7 @@ export default function Page() {
     await client.fetchAccount(wallet);
 
     setStatus('Building transaction...');
-    await client.buildTx(/* your arg */);
+    await client.buildTx(wallet, JSON.stringify(42)); // pass wallet as sender + your arg
 
     setStatus('Proving (this takes ~60s)...');
     await client.proveTx();

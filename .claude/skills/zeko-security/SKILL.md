@@ -49,12 +49,85 @@ async deploy(args: DeployArgs) {
 
 Leaving `setVerificationKey: signature` (the default) allows the deployer key to swap contract logic at any time without users knowing.
 
+## Deployment key lifecycle
+
+The deployer private key is a **one-time bootstrap tool**, not an ongoing operational secret.
+
+```
+deploy()      →  deployer key signs once  →  contract is live
+initialize()  →  may require contract key for one-time vault setup  →  done
+                           ↓
+              The deployer / contract key is never needed again.
+              Lock the contract with impossible() permissions so even
+              someone with the key cannot bypass the proof requirement.
+```
+
+**The principle:** After deploy, set `setVerificationKey: impossible()` and `setPermissions: impossible()`. The blockchain then only accepts valid ZK proofs — the original private key is permanently powerless for state changes.
+
+```typescript
+// In deploy(): lock the contract immediately
+this.account.permissions.set({
+  ...Permissions.default(),
+  setVerificationKey: Permissions.VerificationKey.impossibleDuringCurrentVersion(),
+  setPermissions:     Permissions.impossible(),
+  editState:          Permissions.proof(),
+  send:               Permissions.proof(),
+  editActionState:    Permissions.proof(),
+});
+```
+
+After this, keep `deploy-output.json` offline. The private keys in it are inert for further state changes — they can only be used to re-deploy to a *new* address, not to modify the existing contract.
+
+## Vault token account pattern (proof-locked escrow)
+
+When a SmartContract holds a custom token (e.g. as an auction escrow), the token account at `(contractAddress, tokenId)` is created with default `send: signature()`. This is a security hole: sending the NFT out requires the **contract's private key** as a co-signer, which must never reach the browser.
+
+**Fix:** during the one-time `initialize()` call (which already requires the contract key for deployment), set `send: proof()` on the vault and lock its permissions permanently.
+
+```typescript
+// In initialize() — runs once at deploy time, auctionKey co-signs
+@method async initialize(...) {
+  // ... setup logic ...
+
+  // Escrow the token
+  const vaultTokenAU = AccountUpdate.create(this.address, tokenId);
+  vaultTokenAU.requireSignature();  // auctionKey signs HERE, one-time only
+  // Give the vault the same VK as this contract
+  const myVK = this.account.verificationKey.getAndRequireEquals();
+  vaultTokenAU.account.verificationKey.set(myVK);
+  // Lock it: only proofs (not signatures) can send from the vault
+  vaultTokenAU.account.permissions.set({
+    ...Permissions.default(),
+    send:               Permissions.proof(),
+    setVerificationKey: Permissions.impossible(),
+    setPermissions:     Permissions.impossible(),
+  });
+  vaultTokenAU.balance.addInPlace(UInt64.from(1));
+  await nft.approveAccountUpdates([sellerTokenAU, vaultTokenAU]);
+}
+
+// In claimNFT() — no private key needed in the browser
+@method async claimNFT() {
+  // ... winner verification ...
+
+  const vaultTokenAU = AccountUpdate.create(this.address, tokenId);
+  // No requireSignature() — the vault's send: proof() with AuctionContract's VK
+  // is satisfied by the claimNFT() @method proof automatically.
+  vaultTokenAU.balance.subInPlace(UInt64.from(1));
+  // ...
+}
+```
+
+**Why it works:** The vault has `send: proof()` with VK = AuctionContract's VK. Any `@method` proof from AuctionContract (including `claimNFT()`) satisfies this permission. No private key is required in the browser — only the user's Auro wallet signature.
+
+**Rule:** If a @method creates child account updates that need to debit a token account, set `send: proof()` + `setVerificationKey: impossible()` + `setPermissions: impossible()` on that token account during the one-time initialization step. Never ship a contract that requires its own private key as a runtime co-signer.
+
 ## Nullifiers (anti-double-spend)
 
 Use the built-in `Nullifier` API to privately track consumed inputs:
 
 ```typescript
-import { Nullifier, MerkleMap } from 'o1js';
+import { Nullifier, MerkleMapWitness, Provable } from 'o1js';
 
 @method async consume(nullifier: Nullifier) {
   const nullifierMessage = Field(1); // domain separator — use a constant per app
@@ -62,15 +135,12 @@ import { Nullifier, MerkleMap } from 'o1js';
   // 1. Verify nullifier was derived from the caller's key
   nullifier.verify([nullifierMessage]);
 
-  // 2. Compute the nullifier key (deterministic per (key, message) pair)
-  const nullifierKey = nullifier.key();
-
-  // 3. Check it hasn't been spent
+  // 2. Check it hasn't been spent
   const currentRoot = this.nullifierRoot.getAndRequireEquals();
-  const witness = ...; // MerkleMapWitness from offchain storage
+  const witness = Provable.witness(MerkleMapWitness, () => getNullifierWitness(nullifier.key()));
   nullifier.assertUnused(witness, currentRoot);
 
-  // 4. Mark as spent, get new root
+  // 3. Mark as spent, get new root
   const newRoot = nullifier.setUsed(witness);
   this.nullifierRoot.set(newRoot);
 }
@@ -121,8 +191,8 @@ If your reducer creates `AccountUpdate`s for accounts you don't control, those a
 ## sender safety
 
 ```typescript
-// REMOVED in o1js v2 — do not use
-this.sender // ❌
+// Changed in o1js v2 — bare property access no longer works
+this.sender.toBase58() // ❌ (old pattern)
 
 // Proves the sender signed the transaction (recommended)
 const sender = this.sender.getAndRequireSignature(); // ✓
@@ -142,5 +212,8 @@ const sender = this.sender.getUnconstrained(); // ✓ (with care)
 - [ ] Reducer operations are commutative
 - [ ] No `this.sender` usage (o1js v2)
 - [ ] Nullifiers used for any "claim once" mechanic
+- [ ] Token vault accounts locked with `send: proof()` + `setVerificationKey: impossible()` + `setPermissions: impossible()` during initialize()
+- [ ] No @method requires the contract's own private key as a runtime co-signer
+- [ ] Deployer / contract private keys stored offline after initialization
 - [ ] Tested with `proofsEnabled: true` locally before deploying
 - [ ] Consider third-party audit for high-value contracts

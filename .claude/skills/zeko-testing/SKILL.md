@@ -53,13 +53,15 @@ describe('MyZkApp', () => {
     await tx.prove();
     await tx.sign([feePayer.key]).send();
 
-    expect(zkApp.root.get()).toEqual(Field(42));
+    // Use .toString() for Field equality — Jest toEqual doesn't work with o1js types
+    expect(zkApp.root.get().toString()).toBe('42');
   });
 
-  it('rejects invalid input', async () => {
+  it('rejects input that violates constraints', async () => {
+    // Field(0) if the contract requires value > 0
     await expect(async () => {
       const tx = await Mina.transaction(feePayer, async () => {
-        await zkApp.update(Field(-1));
+        await zkApp.update(Field(0)); // violates assertGreaterThan(0) constraint
       });
       await tx.prove();
       await tx.sign([feePayer.key]).send();
@@ -103,7 +105,7 @@ Mina.setActiveInstance(lightnetInstance);
 // Lightnet (the import) provides the account management API
 const keyPair = await Lightnet.acquireKeyPair();
 // ... run tests ...
-await Lightnet.releaseKeyPair({ publicKey: keyPair.publicKey });
+await Lightnet.releaseKeyPair({ publicKey: keyPair.publicKey.toBase58() });
 ```
 
 ## Phase 4: Zeko Devnet
@@ -144,7 +146,8 @@ describe('MyProgram', () => {
   it('recursive proof chains correctly', async () => {
     const base = await MyProgram.init(Field(1), Field(7));
     const step = await MyProgram.step(Field(1), base, Field(3));
-    expect(step.publicOutput).toEqual(Field(10));
+    // Use .toString() — Jest toEqual doesn't work with o1js types
+    expect(step.publicOutput.toString()).toBe('10');
   });
 });
 ```

@@ -140,8 +140,7 @@ const ok = await MyProgram.verify(stepProof);
 // Verify inside a SmartContract method
 @method async submitProof(proof: MyProof) {
   proof.verify();
-  const result = proof.publicOutput;
-  this.root.set(result);
+  this.root.set(proof.publicOutput);
 }
 ```
 
@@ -153,16 +152,3 @@ const ok = await MyProgram.verify(stepProof);
 - Use `Packed<T>` to reduce field count when passing many small values
 - Compile once per process — recompilation is expensive; cache the verification key
 
-## Connecting ZkProgram proof to SmartContract
-
-```typescript
-// SmartContract stays thin — just verify + update state
-class MyZkApp extends SmartContract {
-  @state(Field) commitment = State<Field>();
-
-  @method async settle(proof: MyProof) {
-    proof.verify();
-    this.commitment.set(proof.publicOutput);
-  }
-}
-```

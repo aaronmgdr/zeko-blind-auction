@@ -91,12 +91,12 @@ class TokenZkApp extends SmartContract {
     const toBalance   = await this.offchainState.fields.balances.get(to);
 
     this.offchainState.fields.balances.update(from, {
-      from: fromBalance,              // precondition: must equal current value
-      to: fromBalance.orElse(0n).sub(amount),
+      from: fromBalance,                           // precondition: must equal current value
+      to: fromBalance.orElse(UInt64.zero).sub(amount),
     });
     this.offchainState.fields.balances.update(to, {
       from: toBalance,
-      to: toBalance.orElse(0n).add(amount),
+      to: toBalance.orElse(UInt64.zero).add(amount),
     });
   }
 
@@ -145,7 +145,7 @@ class VotingApp extends SmartContract {
       pendingActions,
       Field,
       (acc, action) => acc.add(action), // commutative: a+b == b+a ✓
-      { state: Field(0), actionState: this.actionState.get() }
+      { state: Field(0), actionState: this.actionState.getAndRequireEquals() }
     );
 
     this.actionState.set(newState);
